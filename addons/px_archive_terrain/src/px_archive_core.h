@@ -1,12 +1,12 @@
 #pragma once
 
-#include <cstdint>
+#include "../thirdparty/lzma/LzmaEnc.h"
+
 #include <array>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-#include "../thirdparty/lzma/LzmaEnc.h"
 
 namespace px_archive_terrain {
 

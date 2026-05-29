@@ -3,6 +3,12 @@
 #include "px_archive_core.h"
 #include "px_archive_geo.h"
 
+#include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/mesh_instance3d.hpp>
+#include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/vector3.hpp>
+
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -14,12 +20,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include <godot_cpp/classes/image.hpp>
-#include <godot_cpp/classes/mesh_instance3d.hpp>
-#include <godot_cpp/classes/node3d.hpp>
-#include <godot_cpp/variant/array.hpp>
-#include <godot_cpp/variant/vector3.hpp>
-
 namespace godot {
 
 class PXArchiveTerrain : public Node3D {
@@ -27,7 +27,6 @@ class PXArchiveTerrain : public Node3D {
 
 	struct ArchiveState {
 		std::shared_ptr<px_archive_terrain::ArchiveReader> reader;
-		std::shared_ptr<std::mutex> mutex;
 	};
 
 	struct LoadedTile {
@@ -90,7 +89,6 @@ class PXArchiveTerrain : public Node3D {
 	double last_refresh_longitude = 0.0;
 	double last_refresh_altitude = 0.0;
 	bool has_last_refresh_eye = false;
-	bool has_pending_visible_tiles = false;
 	bool has_editor_eye_override = false;
 	bool has_editor_camera_frustum = false;
 	bool has_last_refresh_camera_basis = false;

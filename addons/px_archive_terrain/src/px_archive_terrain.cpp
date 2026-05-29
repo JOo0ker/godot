@@ -1,10 +1,5 @@
 #include "px_archive_terrain.h"
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <limits>
-
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -18,15 +13,16 @@
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <limits>
+
 namespace godot {
 namespace {
 
 Vector3 to_godot_vector(const px_archive_terrain::Vec3d &p_value) {
 	return Vector3(static_cast<real_t>(p_value.x), static_cast<real_t>(p_value.y), static_cast<real_t>(p_value.z));
-}
-
-String tile_key(const std::string &p_archive_path, const std::string &p_base_name) {
-	return String((p_archive_path + "|" + p_base_name).c_str());
 }
 
 std::string tile_key_std(const std::string &p_archive_path, const std::string &p_base_name) {
@@ -39,6 +35,11 @@ bool PXArchiveTerrain::_prepare_tile_display_data(const px_archive_terrain::Tile
 	r_display = PXArchiveTerrain::TileDisplayData();
 	r_display.base_name = p_tile.base_name;
 	if (p_tile.has_texture && !p_tile.texture_data.empty()) {
+		if (p_tile.texture_data.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+			r_error_text = "Tile texture is too large.";
+			return true;
+		}
+
 		PackedByteArray texture_bytes;
 		texture_bytes.resize(static_cast<int>(p_tile.texture_data.size()));
 		for (int i = 0; i < static_cast<int>(p_tile.texture_data.size()); i++) {
@@ -47,9 +48,12 @@ bool PXArchiveTerrain::_prepare_tile_display_data(const px_archive_terrain::Tile
 
 		Ref<Image> image;
 		image.instantiate();
-		if (image->load_dds_from_buffer(texture_bytes) == OK && !image->is_empty()) {
+		const Error texture_error = image->load_dds_from_buffer(texture_bytes);
+		if (texture_error == OK && !image->is_empty()) {
 			r_display.texture_image = image;
 			r_display.has_texture = true;
+		} else {
+			r_error_text = "Failed to decode tile texture.";
 		}
 	}
 
@@ -453,7 +457,6 @@ void PXArchiveTerrain::_clear_tiles() {
 	loaded_tiles.clear();
 	queued_tiles.clear();
 	failed_tiles.clear();
-	has_pending_visible_tiles = false;
 }
 
 void PXArchiveTerrain::_remove_tile(const std::string &p_key) {
@@ -515,7 +518,6 @@ void PXArchiveTerrain::_refresh_archives_for_eye(double p_latitude, double p_lon
 
 		ArchiveState state;
 		state.reader = std::move(reader);
-		state.mutex = std::make_shared<std::mutex>();
 		loaded_archives.emplace(archive_path, std::move(state));
 	}
 }
@@ -610,14 +612,12 @@ void PXArchiveTerrain::_force_refresh_after_tiles_changed() {
 	_clear_pending_loads();
 	_clear_tiles();
 	has_last_refresh_eye = false;
-	has_pending_visible_tiles = true;
 	auto_refresh_elapsed = auto_refresh_interval;
 }
 
 void PXArchiveTerrain::_request_auto_refresh() {
 	has_last_refresh_eye = false;
 	has_last_refresh_camera_basis = false;
-	has_pending_visible_tiles = true;
 	auto_refresh_elapsed = auto_refresh_interval;
 }
 
@@ -738,7 +738,6 @@ void PXArchiveTerrain::_clear_pending_loads() {
 	queued_tiles.clear();
 	failed_tiles.clear();
 	load_generation++;
-	has_pending_visible_tiles = false;
 }
 
 void PXArchiveTerrain::_drain_completed_tiles() {
@@ -764,6 +763,9 @@ void PXArchiveTerrain::_drain_completed_tiles() {
 			last_error = from_utf8(result.error_text);
 			continue;
 		}
+		if (!result.error_text.empty()) {
+			last_error = from_utf8(result.error_text);
+		}
 
 		if (!_aabb_is_near_eye(result.display.aabb, last_refresh_latitude, last_refresh_longitude, last_refresh_altitude, cleanup_range_multiplier)) {
 			continue;
@@ -778,8 +780,6 @@ void PXArchiveTerrain::_drain_completed_tiles() {
 			break;
 		}
 	}
-
-	has_pending_visible_tiles = _has_pending_loads();
 }
 
 void PXArchiveTerrain::_queue_visible_tile_jobs(double p_latitude, double p_longitude, double p_altitude) {
@@ -788,9 +788,6 @@ void PXArchiveTerrain::_queue_visible_tile_jobs(double p_latitude, double p_long
 		std::string key;
 		std::string archive_path;
 		px_archive_terrain::TileCandidate candidate;
-		std::shared_ptr<px_archive_terrain::ArchiveReader> reader;
-		std::shared_ptr<std::mutex> archive_mutex;
-		bool visible = false;
 	};
 
 	const px_archive_terrain::Vec3d eye = geo_reference.geo_to_local(p_latitude, p_longitude, p_altitude);
@@ -798,7 +795,7 @@ void PXArchiveTerrain::_queue_visible_tile_jobs(double p_latitude, double p_long
 	for (auto &archive_entry : loaded_archives) {
 		const std::string &archive_path = archive_entry.first;
 		ArchiveState &archive_state = archive_entry.second;
-		if (!archive_state.reader || !archive_state.mutex) {
+		if (!archive_state.reader) {
 			continue;
 		}
 
@@ -823,10 +820,7 @@ void PXArchiveTerrain::_queue_visible_tile_jobs(double p_latitude, double p_long
 					dx * dx + dy * dy + dz * dz + priority_penalty,
 					key,
 					archive_path,
-					candidate,
-					archive_state.reader,
-					archive_state.mutex,
-					visible });
+					candidate });
 		}
 	}
 
@@ -860,8 +854,6 @@ void PXArchiveTerrain::_queue_visible_tile_jobs(double p_latitude, double p_long
 	if (queued_this_update > 0) {
 		worker_cv.notify_all();
 	}
-
-	has_pending_visible_tiles = queued_this_update > 0 || candidates.size() > static_cast<size_t>(queued_this_update) || _has_pending_loads();
 }
 
 bool PXArchiveTerrain::_has_pending_loads() {
@@ -930,17 +922,9 @@ MeshInstance3D *PXArchiveTerrain::_create_tile_mesh(const TileDisplayData &p_til
 	normals.resize(vertex_count);
 	uvs.resize(static_cast<int>(p_tile.uvs.size() / 2));
 	for (int i = 0; i < vertex_count; i++) {
-		vertices.set(i, Vector3(
-				static_cast<real_t>(p_tile.vertices[(static_cast<size_t>(i) * 3) + 0]),
-				static_cast<real_t>(p_tile.vertices[(static_cast<size_t>(i) * 3) + 1]),
-				static_cast<real_t>(p_tile.vertices[(static_cast<size_t>(i) * 3) + 2])));
-		normals.set(i, Vector3(
-				static_cast<real_t>(p_tile.normals[(static_cast<size_t>(i) * 3) + 0]),
-				static_cast<real_t>(p_tile.normals[(static_cast<size_t>(i) * 3) + 1]),
-				static_cast<real_t>(p_tile.normals[(static_cast<size_t>(i) * 3) + 2])));
-		uvs.set(i, Vector2(
-				p_tile.uvs[(static_cast<size_t>(i) * 2) + 0],
-				p_tile.uvs[(static_cast<size_t>(i) * 2) + 1]));
+		vertices.set(i, Vector3(static_cast<real_t>(p_tile.vertices[(static_cast<size_t>(i) * 3) + 0]), static_cast<real_t>(p_tile.vertices[(static_cast<size_t>(i) * 3) + 1]), static_cast<real_t>(p_tile.vertices[(static_cast<size_t>(i) * 3) + 2])));
+		normals.set(i, Vector3(static_cast<real_t>(p_tile.normals[(static_cast<size_t>(i) * 3) + 0]), static_cast<real_t>(p_tile.normals[(static_cast<size_t>(i) * 3) + 1]), static_cast<real_t>(p_tile.normals[(static_cast<size_t>(i) * 3) + 2])));
+		uvs.set(i, Vector2(p_tile.uvs[(static_cast<size_t>(i) * 2) + 0], p_tile.uvs[(static_cast<size_t>(i) * 2) + 1]));
 	}
 
 	indices.resize(static_cast<int>(p_tile.indices.size()));

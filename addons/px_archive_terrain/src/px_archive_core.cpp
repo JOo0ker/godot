@@ -4,6 +4,7 @@
 #include "../thirdparty/lzma/LzmaDec.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -56,6 +57,24 @@ bool read_array(const uint8_t *&r_cursor, size_t &r_remaining, T *p_dst, size_t 
 	}
 	r_cursor += bytes;
 	r_remaining -= bytes;
+	return true;
+}
+
+bool parse_double_token(const std::string &p_text, double &r_value) {
+	char *end = nullptr;
+	errno = 0;
+	r_value = std::strtod(p_text.c_str(), &end);
+	return errno != ERANGE && end != p_text.c_str() && end != nullptr && *end == '\0';
+}
+
+bool parse_int_token(const std::string &p_text, int &r_value) {
+	char *end = nullptr;
+	errno = 0;
+	const long value = std::strtol(p_text.c_str(), &end, 10);
+	if (errno == ERANGE || end == p_text.c_str() || end == nullptr || *end != '\0' || value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
+		return false;
+	}
+	r_value = static_cast<int>(value);
 	return true;
 }
 
@@ -403,6 +422,10 @@ bool ArchiveReader::read_file(const std::string &p_name, std::vector<uint8_t> &r
 	std::vector<uint8_t> compressed(static_cast<size_t>(header.compressed_size));
 	r_data.assign(static_cast<size_t>(header.uncompressed_size), 0);
 	stream.seekg(header.offset, std::ios::beg);
+	if (!stream.good()) {
+		error_text = "Failed to seek archive entry: " + p_name;
+		return false;
+	}
 	stream.read(reinterpret_cast<char *>(compressed.data()), static_cast<std::streamsize>(compressed.size()));
 	if (!stream.good()) {
 		error_text = "Failed to read archive entry: " + p_name;
@@ -425,6 +448,10 @@ bool ArchiveReader::read_file(const std::string &p_name, std::vector<uint8_t> &r
 
 	if (result != SZ_OK) {
 		error_text = "Failed to decompress archive entry: " + p_name;
+		return false;
+	}
+	if (destination_size != r_data.size()) {
+		error_text = "Unexpected decompressed size for archive entry: " + p_name;
 		return false;
 	}
 
@@ -452,6 +479,10 @@ bool ArchiveReader::read_external_file(const std::string &p_name, std::vector<ui
 
 	r_data.assign(static_cast<size_t>(size), 0);
 	stream.seekg(0, std::ios::beg);
+	if (!stream.good()) {
+		error_text = "Failed to seek external file: " + p_name;
+		return false;
+	}
 	if (!r_data.empty()) {
 		stream.read(reinterpret_cast<char *>(r_data.data()), static_cast<std::streamsize>(r_data.size()));
 	}
@@ -534,8 +565,12 @@ bool ArchiveReader::parse_tile_base_name(const std::string &p_base_name, TileCan
 	}
 	const char lat_sign = lat_token.back();
 	const char lon_sign = lon_token.back();
-	double lat = std::strtod(lat_token.substr(0, lat_token.size() - 1).c_str(), nullptr);
-	double lon = std::strtod(lon_token.substr(0, lon_token.size() - 1).c_str(), nullptr);
+	double lat = 0.0;
+	double lon = 0.0;
+	if (!parse_double_token(lat_token.substr(0, lat_token.size() - 1), lat) ||
+			!parse_double_token(lon_token.substr(0, lon_token.size() - 1), lon)) {
+		return false;
+	}
 
 	if (lat_sign == 'S') {
 		lat = -lat;
@@ -555,7 +590,10 @@ bool ArchiveReader::parse_tile_base_name(const std::string &p_base_name, TileCan
 		return false;
 	}
 
-	const int face = static_cast<int>(std::strtol(face_and_sectors.substr(0, sectors_separator).c_str(), nullptr, 10));
+	int face = 0;
+	if (!parse_int_token(face_and_sectors.substr(0, sectors_separator), face)) {
+		return false;
+	}
 	if (face < 0 || face >= 6) {
 		return false;
 	}
@@ -579,7 +617,9 @@ bool ArchiveReader::parse_tile_base_name(const std::string &p_base_name, TileCan
 	r_candidate.face = face;
 	r_candidate.depth = static_cast<int>(sectors.size()) - 1;
 	r_candidate.sectors = sector_list;
-	compute_tile_center_from_spherical_cube(face, r_candidate.depth, r_candidate.sectors, r_candidate.latitude, r_candidate.longitude);
+	if (!compute_tile_center_from_spherical_cube(face, r_candidate.depth, r_candidate.sectors, r_candidate.latitude, r_candidate.longitude)) {
+		return false;
+	}
 	return true;
 }
 
