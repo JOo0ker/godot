@@ -98,6 +98,137 @@ std::string format_long_name(int p_long_degree) {
 	return buffer;
 }
 
+Vec3d add(const Vec3d &p_lhs, const Vec3d &p_rhs) {
+	return { p_lhs.x + p_rhs.x, p_lhs.y + p_rhs.y, p_lhs.z + p_rhs.z };
+}
+
+Vec3d mul(double p_scalar, const Vec3d &p_value) {
+	return { p_scalar * p_value.x, p_scalar * p_value.y, p_scalar * p_value.z };
+}
+
+double length(const Vec3d &p_value) {
+	return std::sqrt(p_value.x * p_value.x + p_value.y * p_value.y + p_value.z * p_value.z);
+}
+
+Vec3d spherify_cube_point(const Vec3d &p_cube_point) {
+	const double x = p_cube_point.x;
+	const double y = p_cube_point.y;
+	const double z = p_cube_point.z;
+
+	Vec3d spherified;
+	spherified.x = x * std::sqrt(1.0 - 0.5 * y * y - 0.5 * z * z + 0.33333 * y * y * z * z);
+	spherified.y = y * std::sqrt(1.0 - 0.5 * z * z - 0.5 * x * x + 0.33333 * z * z * x * x);
+	spherified.z = z * std::sqrt(1.0 - 0.5 * x * x - 0.5 * y * y + 0.33333 * x * x * y * y);
+
+	const double value_length = length(spherified);
+	if (value_length == 0.0) {
+		return {};
+	}
+
+	constexpr double earth_radius_meters = 6371000.0;
+	return mul(earth_radius_meters / value_length, spherified);
+}
+
+bool build_spherical_cube_root_vertices(int p_face, Vec3d r_vertices[4]) {
+	if (p_face < 0 || p_face >= 6) {
+		return false;
+	}
+
+	constexpr Vec3d cube_vertices[8] = {
+		{ -1.0, -1.0, 1.0 },
+		{ 1.0, -1.0, 1.0 },
+		{ 1.0, 1.0, 1.0 },
+		{ -1.0, 1.0, 1.0 },
+		{ -1.0, -1.0, -1.0 },
+		{ 1.0, -1.0, -1.0 },
+		{ 1.0, 1.0, -1.0 },
+		{ -1.0, 1.0, -1.0 },
+	};
+	constexpr int indices[6][4] = {
+		{ 0, 1, 2, 3 },
+		{ 1, 5, 6, 2 },
+		{ 5, 4, 7, 6 },
+		{ 0, 3, 7, 4 },
+		{ 0, 4, 5, 1 },
+		{ 3, 2, 6, 7 },
+	};
+
+	for (int i = 0; i < 4; i++) {
+		r_vertices[i] = cube_vertices[indices[p_face][i]];
+	}
+	return true;
+}
+
+bool build_spherical_cube_child_vertices(const Vec3d p_parent_vertices[4], int p_child_index, Vec3d r_vertices[4]) {
+	if (p_child_index < 0 || p_child_index >= 4) {
+		return false;
+	}
+
+	const Vec3d &v0 = p_parent_vertices[0];
+	const Vec3d &v1 = p_parent_vertices[1];
+	const Vec3d &v2 = p_parent_vertices[2];
+	const Vec3d &v3 = p_parent_vertices[3];
+
+	if (p_child_index == 0) {
+		r_vertices[0] = v0;
+		r_vertices[1] = mul(0.5, add(v0, v1));
+		r_vertices[2] = mul(0.5, add(v0, v2));
+		r_vertices[3] = mul(0.5, add(v0, v3));
+	} else if (p_child_index == 1) {
+		r_vertices[0] = mul(0.5, add(v0, v1));
+		r_vertices[1] = v1;
+		r_vertices[2] = mul(0.5, add(v1, v2));
+		r_vertices[3] = mul(0.5, add(v0, v2));
+	} else if (p_child_index == 2) {
+		r_vertices[0] = mul(0.5, add(v0, v2));
+		r_vertices[1] = mul(0.5, add(v1, v2));
+		r_vertices[2] = v2;
+		r_vertices[3] = mul(0.5, add(v2, v3));
+	} else {
+		r_vertices[0] = mul(0.5, add(v0, v3));
+		r_vertices[1] = mul(0.5, add(v0, v2));
+		r_vertices[2] = mul(0.5, add(v3, v2));
+		r_vertices[3] = v3;
+	}
+	return true;
+}
+
+void ecef_to_geo(const Vec3d &p_point, double &r_latitude, double &r_longitude) {
+	const double length_xz = std::sqrt(p_point.x * p_point.x + p_point.z * p_point.z);
+	r_latitude = std::atan2(p_point.y, length_xz) * 57.2957795131;
+	r_longitude = std::atan2(p_point.x, p_point.z) * 57.2957795131;
+}
+
+bool compute_tile_center_from_spherical_cube(int p_face, int p_depth, const std::array<int, TileCandidate::MAX_DEPTH> &p_sectors, double &r_latitude, double &r_longitude) {
+	if (p_depth < 0 || p_depth >= TileCandidate::MAX_DEPTH) {
+		return false;
+	}
+
+	Vec3d vertices[4] = {};
+	if (!build_spherical_cube_root_vertices(p_face, vertices)) {
+		return false;
+	}
+
+	for (int depth = 1; depth <= p_depth; depth++) {
+		Vec3d child_vertices[4] = {};
+		if (!build_spherical_cube_child_vertices(vertices, p_sectors[depth], child_vertices)) {
+			return false;
+		}
+		for (int i = 0; i < 4; i++) {
+			vertices[i] = child_vertices[i];
+		}
+	}
+
+	Vec3d world_vertices[4] = {};
+	for (int i = 0; i < 4; i++) {
+		world_vertices[i] = spherify_cube_point(vertices[i]);
+	}
+
+	const Vec3d world_center = mul(0.25, add(add(world_vertices[0], world_vertices[1]), add(world_vertices[2], world_vertices[3])));
+	ecef_to_geo(world_center, r_latitude, r_longitude);
+	return true;
+}
+
 } // namespace
 
 bool ArchiveReader::open(const std::string &p_archive_path) {
@@ -425,11 +556,21 @@ bool ArchiveReader::parse_tile_base_name(const std::string &p_base_name, TileCan
 	}
 
 	const int face = static_cast<int>(std::strtol(face_and_sectors.substr(0, sectors_separator).c_str(), nullptr, 10));
+	if (face < 0 || face >= 6) {
+		return false;
+	}
 	const std::string sectors = face_and_sectors.substr(sectors_separator + 1);
-	for (const char sector : sectors) {
+	if (sectors.empty() || sectors.size() > TileCandidate::MAX_DEPTH) {
+		return false;
+	}
+
+	std::array<int, TileCandidate::MAX_DEPTH> sector_list = {};
+	for (size_t i = 0; i < sectors.size(); i++) {
+		const char sector = sectors[i];
 		if (sector < '0' || sector > '3') {
 			return false;
 		}
+		sector_list[i] = sector - '0';
 	}
 
 	r_candidate.base_name = p_base_name;
@@ -437,6 +578,8 @@ bool ArchiveReader::parse_tile_base_name(const std::string &p_base_name, TileCan
 	r_candidate.longitude = lon;
 	r_candidate.face = face;
 	r_candidate.depth = static_cast<int>(sectors.size()) - 1;
+	r_candidate.sectors = sector_list;
+	compute_tile_center_from_spherical_cube(face, r_candidate.depth, r_candidate.sectors, r_candidate.latitude, r_candidate.longitude);
 	return true;
 }
 

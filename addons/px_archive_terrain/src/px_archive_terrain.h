@@ -10,6 +10,8 @@
 
 #include <godot_cpp/classes/mesh_instance3d.hpp>
 #include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 
 namespace godot {
 
@@ -48,6 +50,10 @@ class PXArchiveTerrain : public Node3D {
 	double last_refresh_altitude = 0.0;
 	bool has_last_refresh_eye = false;
 	bool has_pending_visible_tiles = false;
+	bool has_editor_eye_override = false;
+	bool has_editor_camera_frustum = false;
+	Vector3 editor_eye_global_position;
+	Array editor_camera_frustum;
 	String last_error;
 
 	px_archive_terrain::GeoReference geo_reference;
@@ -89,6 +95,9 @@ public:
 	void set_use_camera_eye(bool p_enabled);
 	bool is_using_camera_eye() const;
 	void set_eye_geodetic(double p_latitude, double p_longitude, double p_altitude);
+	void set_editor_eye_global_position(const Vector3 &p_global_position);
+	void set_editor_camera_state(const Vector3 &p_global_position, const Array &p_frustum);
+	void clear_editor_eye_override();
 	void set_eye_latitude(double p_value);
 	double get_eye_latitude() const;
 	void set_eye_longitude(double p_value);

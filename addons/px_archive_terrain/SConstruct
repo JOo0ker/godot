@@ -1,7 +1,23 @@
 import os
 import sys
 
-env = SConscript(os.path.join(os.environ.get("GODOT_CPP_PATH", "godot-cpp"), "SConstruct"))
+def find_godot_cpp_path():
+    candidates = []
+    env_path = os.environ.get("GODOT_CPP_PATH")
+    if env_path:
+        candidates.append(env_path)
+    candidates.append(os.path.abspath(os.path.join("..", "..", "..", "godot-cpp")))
+    candidates.append("godot-cpp")
+
+    for candidate in candidates:
+        sconstruct = os.path.join(candidate, "SConstruct")
+        if os.path.isfile(sconstruct):
+            return candidate
+
+    print("Unable to find godot-cpp. Set GODOT_CPP_PATH or place it next to the godot/phoenix-gamma folder.")
+    sys.exit(1)
+
+env = SConscript(os.path.join(find_godot_cpp_path(), "SConstruct"))
 
 platform = env["platform"]
 target = env["target"]

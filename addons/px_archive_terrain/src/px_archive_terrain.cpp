@@ -5,6 +5,7 @@
 
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/camera3d.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
@@ -53,6 +54,9 @@ void PXArchiveTerrain::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_use_camera_eye", "enabled"), &PXArchiveTerrain::set_use_camera_eye);
 	ClassDB::bind_method(D_METHOD("is_using_camera_eye"), &PXArchiveTerrain::is_using_camera_eye);
 	ClassDB::bind_method(D_METHOD("set_eye_geodetic", "latitude", "longitude", "altitude"), &PXArchiveTerrain::set_eye_geodetic);
+	ClassDB::bind_method(D_METHOD("set_editor_eye_global_position", "global_position"), &PXArchiveTerrain::set_editor_eye_global_position);
+	ClassDB::bind_method(D_METHOD("set_editor_camera_state", "global_position", "frustum"), &PXArchiveTerrain::set_editor_camera_state);
+	ClassDB::bind_method(D_METHOD("clear_editor_eye_override"), &PXArchiveTerrain::clear_editor_eye_override);
 	ClassDB::bind_method(D_METHOD("set_eye_latitude", "latitude"), &PXArchiveTerrain::set_eye_latitude);
 	ClassDB::bind_method(D_METHOD("get_eye_latitude"), &PXArchiveTerrain::get_eye_latitude);
 	ClassDB::bind_method(D_METHOD("set_eye_longitude", "longitude"), &PXArchiveTerrain::set_eye_longitude);
@@ -110,7 +114,7 @@ void PXArchiveTerrain::_bind_methods() {
 
 void PXArchiveTerrain::_notification(int p_what) {
 	if (p_what == NOTIFICATION_ENTER_TREE) {
-		set_process(auto_refresh);
+		set_process(auto_refresh || Engine::get_singleton()->is_editor_hint());
 	} else if (p_what == NOTIFICATION_PROCESS) {
 		if (auto_refresh) {
 			auto_refresh_elapsed += get_process_delta_time();
@@ -127,6 +131,8 @@ void PXArchiveTerrain::_notification(int p_what) {
 		}
 	} else if (p_what == NOTIFICATION_EXIT_TREE) {
 		set_process(false);
+		has_editor_eye_override = false;
+		has_editor_camera_frustum = false;
 	}
 }
 
@@ -186,8 +192,45 @@ void PXArchiveTerrain::set_eye_geodetic(double p_latitude, double p_longitude, d
 	eye_longitude = p_longitude;
 	eye_altitude = p_altitude;
 	use_camera_eye = false;
+	has_editor_eye_override = false;
 	has_last_refresh_eye = false;
 	has_pending_visible_tiles = false;
+}
+
+void PXArchiveTerrain::set_editor_eye_global_position(const Vector3 &p_global_position) {
+	editor_eye_global_position = p_global_position;
+	has_editor_eye_override = true;
+	auto_refresh_elapsed = auto_refresh_interval;
+
+	double latitude = 0.0;
+	double longitude = 0.0;
+	double altitude = 0.0;
+	if (is_inside_tree() && auto_refresh && _get_eye_geodetic(latitude, longitude, altitude) && _should_auto_refresh(latitude, longitude, altitude)) {
+		_load_visible_tiles(latitude, longitude, altitude);
+		_remember_refresh_eye(latitude, longitude, altitude);
+	}
+}
+
+void PXArchiveTerrain::set_editor_camera_state(const Vector3 &p_global_position, const Array &p_frustum) {
+	editor_eye_global_position = p_global_position;
+	editor_camera_frustum = p_frustum;
+	has_editor_eye_override = true;
+	has_editor_camera_frustum = true;
+	auto_refresh_elapsed = auto_refresh_interval;
+
+	double latitude = 0.0;
+	double longitude = 0.0;
+	double altitude = 0.0;
+	if (is_inside_tree() && auto_refresh && _get_eye_geodetic(latitude, longitude, altitude) && _should_auto_refresh(latitude, longitude, altitude)) {
+		_load_visible_tiles(latitude, longitude, altitude);
+		_remember_refresh_eye(latitude, longitude, altitude);
+	}
+}
+
+void PXArchiveTerrain::clear_editor_eye_override() {
+	has_editor_eye_override = false;
+	has_editor_camera_frustum = false;
+	editor_camera_frustum.clear();
 }
 
 void PXArchiveTerrain::set_eye_latitude(double p_value) {
@@ -302,7 +345,7 @@ void PXArchiveTerrain::set_auto_refresh(bool p_enabled) {
 	auto_refresh = p_enabled;
 	auto_refresh_elapsed = auto_refresh_interval;
 	if (is_inside_tree()) {
-		set_process(auto_refresh);
+		set_process(auto_refresh || Engine::get_singleton()->is_editor_hint());
 	}
 }
 
@@ -398,6 +441,13 @@ bool PXArchiveTerrain::_get_eye_geodetic(double &r_latitude, double &r_longitude
 		return true;
 	}
 
+	if (Engine::get_singleton()->is_editor_hint() && has_editor_eye_override) {
+		const Vector3 local_eye = get_global_transform().affine_inverse().xform(editor_eye_global_position);
+		const px_archive_terrain::Vec3d local_eye_geo_input{ local_eye.x, local_eye.y, local_eye.z };
+		geo_reference.local_to_geo(local_eye_geo_input, r_latitude, r_longitude, r_altitude);
+		return true;
+	}
+
 	const Viewport *viewport = get_viewport();
 	if (!viewport) {
 		return false;
@@ -446,19 +496,23 @@ void PXArchiveTerrain::_force_refresh_after_tiles_changed() {
 }
 
 bool PXArchiveTerrain::_aabb_intersects_camera(const px_archive_terrain::Aabb &p_aabb) const {
-	const Viewport *viewport = get_viewport();
-	if (!viewport) {
-		return false;
-	}
-
-	Camera3D *camera = viewport->get_camera_3d();
-	if (!camera) {
-		return false;
-	}
-
 	const AABB local_aabb(to_godot_vector(p_aabb.position), to_godot_vector(p_aabb.size));
 	const AABB global_aabb = get_global_transform().xform(local_aabb);
-	const TypedArray<Plane> frustum = camera->get_frustum();
+	Array frustum;
+	if (Engine::get_singleton()->is_editor_hint() && has_editor_camera_frustum) {
+		frustum = editor_camera_frustum;
+	} else {
+		const Viewport *viewport = get_viewport();
+		if (!viewport) {
+			return false;
+		}
+
+		Camera3D *camera = viewport->get_camera_3d();
+		if (!camera) {
+			return false;
+		}
+		frustum = camera->get_frustum();
+	}
 
 	for (int i = 0; i < frustum.size(); i++) {
 		const Plane plane = frustum[i];
@@ -472,25 +526,25 @@ bool PXArchiveTerrain::_aabb_intersects_camera(const px_archive_terrain::Aabb &p
 }
 
 px_archive_terrain::Aabb PXArchiveTerrain::_tile_mesh_aabb(const px_archive_terrain::TileData &p_tile) const {
-	const px_archive_terrain::Vec3d center = geo_reference.geo_to_local(p_tile.candidate.latitude, p_tile.candidate.longitude, 0.0);
 	if (p_tile.dem_points.empty()) {
+		const px_archive_terrain::Vec3d center = geo_reference.geo_to_local(p_tile.candidate.latitude, p_tile.candidate.longitude, 0.0);
 		return { center, { 0.0, 0.0, 0.0 } };
 	}
 
 	const double scale = mesh_scale;
-	px_archive_terrain::Vec3d min_point{
-		center.x + p_tile.dem_points[0].vertex.x * scale,
-		center.y + p_tile.dem_points[0].vertex.z * scale,
-		center.z + p_tile.dem_points[0].vertex.y * scale,
-	};
+	px_archive_terrain::Vec3f scaled_vertex = p_tile.dem_points[0].vertex;
+	scaled_vertex.x *= static_cast<float>(scale);
+	scaled_vertex.y *= static_cast<float>(scale);
+	scaled_vertex.z *= static_cast<float>(scale);
+	px_archive_terrain::Vec3d min_point = geo_reference.source_tile_vertex_to_local(p_tile.candidate, scaled_vertex);
 	px_archive_terrain::Vec3d max_point = min_point;
 
 	for (size_t i = 1; i < p_tile.dem_points.size(); i++) {
-		const px_archive_terrain::Vec3d point{
-			center.x + p_tile.dem_points[i].vertex.x * scale,
-			center.y + p_tile.dem_points[i].vertex.z * scale,
-			center.z + p_tile.dem_points[i].vertex.y * scale,
-		};
+		scaled_vertex = p_tile.dem_points[i].vertex;
+		scaled_vertex.x *= static_cast<float>(scale);
+		scaled_vertex.y *= static_cast<float>(scale);
+		scaled_vertex.z *= static_cast<float>(scale);
+		const px_archive_terrain::Vec3d point = geo_reference.source_tile_vertex_to_local(p_tile.candidate, scaled_vertex);
 		min_point.x = std::min(min_point.x, point.x);
 		min_point.y = std::min(min_point.y, point.y);
 		min_point.z = std::min(min_point.z, point.z);
@@ -506,7 +560,6 @@ px_archive_terrain::Aabb PXArchiveTerrain::_tile_mesh_aabb(const px_archive_terr
 }
 
 MeshInstance3D *PXArchiveTerrain::_create_tile_mesh(const px_archive_terrain::TileData &p_tile) {
-	const px_archive_terrain::Vec3d center = geo_reference.geo_to_local(p_tile.candidate.latitude, p_tile.candidate.longitude, 0.0);
 	const double scale = mesh_scale;
 
 	PackedVector3Array vertices;
@@ -519,10 +572,15 @@ MeshInstance3D *PXArchiveTerrain::_create_tile_mesh(const px_archive_terrain::Ti
 	uvs.resize(static_cast<int>(p_tile.dem_points.size()));
 	for (int i = 0; i < static_cast<int>(p_tile.dem_points.size()); i++) {
 		const px_archive_terrain::TileDemPoint &point = p_tile.dem_points[static_cast<size_t>(i)];
+		px_archive_terrain::Vec3f scaled_vertex = point.vertex;
+		scaled_vertex.x *= static_cast<float>(scale);
+		scaled_vertex.y *= static_cast<float>(scale);
+		scaled_vertex.z *= static_cast<float>(scale);
+		const px_archive_terrain::Vec3d local_vertex = geo_reference.source_tile_vertex_to_local(p_tile.candidate, scaled_vertex);
 		vertices.set(i, Vector3(
-				static_cast<real_t>(point.vertex.x * scale),
-				static_cast<real_t>(point.vertex.z * scale),
-				static_cast<real_t>(point.vertex.y * scale)));
+				static_cast<real_t>(local_vertex.x),
+				static_cast<real_t>(local_vertex.y),
+				static_cast<real_t>(local_vertex.z)));
 		normals.set(i, Vector3(
 				static_cast<real_t>(point.normal.x),
 				static_cast<real_t>(point.normal.z),
@@ -576,7 +634,6 @@ MeshInstance3D *PXArchiveTerrain::_create_tile_mesh(const px_archive_terrain::Ti
 			mesh_instance->set_surface_override_material(0, material);
 		}
 	}
-	mesh_instance->set_position(Vector3(static_cast<real_t>(center.x), static_cast<real_t>(center.y), static_cast<real_t>(center.z)));
 	return mesh_instance;
 }
 

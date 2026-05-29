@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -28,11 +29,14 @@ struct TileDemPoint {
 };
 
 struct TileCandidate {
+	static constexpr int MAX_DEPTH = 15;
+
 	std::string base_name;
 	double latitude = 0.0;
 	double longitude = 0.0;
 	int face = -1;
 	int depth = -1;
+	std::array<int, MAX_DEPTH> sectors = {};
 };
 
 struct TileData {
