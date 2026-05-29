@@ -10,9 +10,11 @@ This addon provides a `PXArchiveTerrain` GDExtension node for Phoenix terrain ar
 4. Set `terrain_folder` to the terrain root that contains `LatXXN/LongXXXE.7z`.
 5. Set `origin_latitude`, `origin_longitude`, and `origin_altitude` near the area you want to inspect.
 
-The node uses the active `Camera3D` as the eye point by default. It converts that local camera position back to latitude, longitude, and altitude using the configured origin, opens the matching archive group, and loads only visible tile meshes.
+The node uses the active `Camera3D` as the eye point. It converts that local camera position back to latitude, longitude, and altitude using the configured origin, opens the matching archive group, and updates terrain tiles as the camera moves and rotates.
 
-Set `use_camera_eye` to false and call `set_eye_geodetic(latitude, longitude, altitude)` to drive archive selection manually.
+## Inspector text
+
+The exported property names remain English for scene compatibility. When the editor language uses Chinese, the inspector shows Chinese labels and Chinese property descriptions. English labels and descriptions remain available when the editor language is English.
 
 ## Build
 

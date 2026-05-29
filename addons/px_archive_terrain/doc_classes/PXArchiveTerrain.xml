@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="PXArchiveTerrain" inherits="Node3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Displays Phoenix terrain archive tiles around the active camera.
+	</brief_description>
+	<description>
+		Loads terrain tiles from PX archive data near the current camera and attaches completed tiles to the scene.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear_tiles">
+			<return type="void" />
+			<description>
+				Clears currently displayed terrain tiles.
+			</description>
+		</method>
+		<method name="refresh_visible_tiles">
+			<return type="void" />
+			<description>
+				Requests a refresh for terrain tiles around the current camera.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="terrain_folder" type="String" setter="set_terrain_folder" getter="get_terrain_folder">
+			Root folder that contains the archived terrain data.
+		</member>
+		<member name="origin_latitude" type="float" setter="set_origin_latitude" getter="get_origin_latitude">
+			Latitude represented by the scene origin.
+		</member>
+		<member name="origin_longitude" type="float" setter="set_origin_longitude" getter="get_origin_longitude">
+			Longitude represented by the scene origin.
+		</member>
+		<member name="origin_altitude" type="float" setter="set_origin_altitude" getter="get_origin_altitude">
+			Altitude represented by the scene origin.
+		</member>
+		<member name="lod" type="int" setter="set_lod" getter="get_lod">
+			Terrain detail level. Higher values show finer terrain and cost more work.
+		</member>
+		<member name="texture_lod" type="int" setter="set_texture_lod" getter="get_texture_lod">
+			Texture detail level. Higher values show clearer textures and cost more work.
+		</member>
+		<member name="max_tiles_per_update" type="int" setter="set_max_tiles_per_update" getter="get_max_tiles_per_update">
+			Compatibility value that also updates the maximum background tile jobs per refresh.
+		</member>
+		<member name="max_tile_jobs_per_refresh" type="int" setter="set_max_tile_jobs_per_refresh" getter="get_max_tile_jobs_per_refresh">
+			Maximum number of tile load jobs scheduled by one refresh.
+		</member>
+		<member name="max_tile_attach_per_frame" type="int" setter="set_max_tile_attach_per_frame" getter="get_max_tile_attach_per_frame">
+			Maximum number of loaded tiles attached to the scene in one frame.
+		</member>
+		<member name="max_vertices_per_tile" type="int" setter="set_max_vertices_per_tile" getter="get_max_vertices_per_tile">
+			Maximum number of vertices read from one tile.
+		</member>
+		<member name="archive_neighborhood" type="int" setter="set_archive_neighborhood" getter="get_archive_neighborhood">
+			Number of extra archive rings opened around the camera archive.
+		</member>
+		<member name="vertical_range" type="float" setter="set_vertical_range" getter="get_vertical_range">
+			Vertical margin used when deciding whether a tile is near the camera view.
+		</member>
+		<member name="loading_range" type="float" setter="set_loading_range" getter="get_loading_range">
+			Distance around the camera where tiles are allowed to load.
+		</member>
+		<member name="cleanup_range_multiplier" type="float" setter="set_cleanup_range_multiplier" getter="get_cleanup_range_multiplier">
+			Multiplier that decides how far displayed tiles can be from the loading range before they are cleared.
+		</member>
+		<member name="max_tile_attach_time_ms" type="float" setter="set_max_tile_attach_time_ms" getter="get_max_tile_attach_time_ms">
+			Maximum frame time spent attaching newly loaded tiles to the scene.
+		</member>
+		<member name="auto_refresh_interval" type="float" setter="set_auto_refresh_interval" getter="get_auto_refresh_interval">
+			Time between camera checks for loading new terrain.
+		</member>
+		<member name="auto_refresh_min_distance" type="float" setter="set_auto_refresh_min_distance" getter="get_auto_refresh_min_distance">
+			Camera movement distance needed before a refresh is requested.
+		</member>
+		<member name="auto_refresh_min_angle" type="float" setter="set_auto_refresh_min_angle" getter="get_auto_refresh_min_angle">
+			Camera rotation angle needed before a refresh is requested.
+		</member>
+		<member name="worker_thread_count" type="int" setter="set_worker_thread_count" getter="get_worker_thread_count">
+			Number of background threads used for tile loading.
+		</member>
+	</members>
+	<signals>
+	</signals>
+	<constants>
+	</constants>
+</class>

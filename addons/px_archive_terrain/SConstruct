@@ -27,6 +27,7 @@ target_name = "debug" if target in ["editor", "template_debug"] else "release"
 env.Append(CPPPATH=["src", "thirdparty/lzma"])
 
 sources = Glob("src/*.cpp") + Glob("thirdparty/lzma/*.c")
+sources.append(env.GodotCPPDocData("src/gen/doc_data.gen.cpp", source=Glob("doc_classes/*.xml")))
 
 if platform == "windows":
     library_name = f"bin/windows/px_archive_terrain.windows.{target_name}.{arch}.dll"
