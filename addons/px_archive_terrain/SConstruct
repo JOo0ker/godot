@@ -1,0 +1,26 @@
+import os
+import sys
+
+env = SConscript(os.path.join(os.environ.get("GODOT_CPP_PATH", "godot-cpp"), "SConstruct"))
+
+platform = env["platform"]
+target = env["target"]
+arch = env.get("arch", "x86_64")
+target_name = "debug" if target in ["editor", "template_debug"] else "release"
+
+env.Append(CPPPATH=["src", "thirdparty/lzma"])
+
+sources = Glob("src/*.cpp") + Glob("thirdparty/lzma/*.c")
+
+if platform == "windows":
+    library_name = f"bin/windows/px_archive_terrain.windows.{target_name}.{arch}.dll"
+elif platform == "linux":
+    library_name = f"bin/linux/libpx_archive_terrain.linux.{target_name}.{arch}.so"
+elif platform == "macos":
+    library_name = f"bin/macos/libpx_archive_terrain.macos.{target_name}.framework"
+else:
+    print(f"Unsupported platform: {platform}")
+    sys.exit(1)
+
+library = env.SharedLibrary(library_name, sources)
+Default(library)

@@ -1,0 +1,12 @@
+[configuration]
+entry_symbol = "px_archive_terrain_library_init"
+compatibility_minimum = "4.4"
+reloadable = true
+
+[libraries]
+windows.debug.x86_64 = "res://addons/px_archive_terrain/bin/windows/px_archive_terrain.windows.debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/px_archive_terrain/bin/windows/px_archive_terrain.windows.release.x86_64.dll"
+linux.debug.x86_64 = "res://addons/px_archive_terrain/bin/linux/libpx_archive_terrain.linux.debug.x86_64.so"
+linux.release.x86_64 = "res://addons/px_archive_terrain/bin/linux/libpx_archive_terrain.linux.release.x86_64.so"
+macos.debug = "res://addons/px_archive_terrain/bin/macos/libpx_archive_terrain.macos.debug.framework"
+macos.release = "res://addons/px_archive_terrain/bin/macos/libpx_archive_terrain.macos.release.framework"
